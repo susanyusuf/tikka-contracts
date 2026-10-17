@@ -83,7 +83,7 @@ use raffle_shared::{RaffleConfigBuilder, RecurringRaffleConfig};
 
 use crate::events;
 use crate::registry::PartnerStats;
-use crate::{ContractError, DataKey, RaffleFactory};
+use crate::{ContractError, DataKey, RaffleFactory, RaffleFactoryArgs, RaffleFactoryClient};
 
 /// On-chain state for a recurring raffle schedule.
 #[derive(Clone)]

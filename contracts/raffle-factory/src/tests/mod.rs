@@ -12,11 +12,11 @@
 use crate::*;
 use raffle_shared::{
     constants::MAX_INTERNAL_RANDOMNESS_PRIZE_AMOUNT, DEFAULT_PAGE_LIMIT,
-    MAX_PAGE_LIMIT, PaginationParams, RandomnessSource, RaffleConfigBuilder,
+    MAX_PAGE_LIMIT, PaginationParams, RaffleConfigBuilder,
 };
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger, MockAuth, MockAuthInvoke},
-    Address, BytesN, Env, FromVal, IntoVal, String, Symbol, Val, Vec as SdkVec,
+    Address, BytesN, Env, IntoVal, String, Symbol, TryFromVal, Vec as SdkVec,
 };
 
 pub fn assert_event(
@@ -25,10 +25,22 @@ pub fn assert_event(
     expected_topic: &str,
 ) {
     let events = env.events().all();
-    let last = events.last().unwrap();
-    assert_eq!(&last.0, expected_contract);
-    assert_eq!(Symbol::from_val(env, &last.1.get(0).unwrap()), Symbol::new(env, "tikka"));
-    assert_eq!(Symbol::from_val(env, &last.1.get(1).unwrap()), Symbol::new(env, expected_topic));
+    let last = events
+        .events()
+        .last()
+        .expect("expected at least one contract event");
+    let contract_id = last
+        .contract_id
+        .clone()
+        .expect("event must come from a contract");
+    let event_address =
+        Address::try_from_val(env, &soroban_sdk::xdr::ScAddress::Contract(contract_id)).unwrap();
+    assert_eq!(&event_address, expected_contract);
+    let soroban_sdk::xdr::ContractEventBody::V0(body) = &last.body;
+    assert_eq!(
+        Symbol::try_from_val(env, &body.topics[0]).unwrap(),
+        Symbol::new(env, expected_topic)
+    );
 }
 
 pub fn setup_factory(env: &Env) -> (RaffleFactoryClient<'_>, Address, Address) {

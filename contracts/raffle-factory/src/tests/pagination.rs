@@ -276,12 +276,12 @@ fn test_clean_old_raffle_invalid_id_rejected() {
     env.mock_all_auths();
     let (client, _admin, _treasury) = setup_factory(&env);
 
-    let start_events = env.events().all().len();
+    let start_events = env.events().all().events().len();
     assert_eq!(
         client.try_clean_old_raffle(&0u32),
         Err(Ok(ContractError::InvalidRaffleId))
     );
-    assert_eq!(env.events().all().len(), start_events);
+    assert_eq!(env.events().all().events().len(), start_events);
 }
 
 #[test]
@@ -297,10 +297,10 @@ fn test_clean_old_raffle_already_tombstoned_rejected() {
             .remove(&DataKey::RaffleById(1u32));
     });
 
-    let start_events = env.events().all().len();
+    let start_events = env.events().all().events().len();
     assert_eq!(
         client.try_clean_old_raffle(&1u32),
         Err(Ok(ContractError::InvalidRaffleId))
     );
-    assert_eq!(env.events().all().len(), start_events);
+    assert_eq!(env.events().all().events().len(), start_events);
 }
