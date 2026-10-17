@@ -297,10 +297,8 @@ impl OracleSeedWinnerSelection {
             // `wrapping_*` forms below cannot actually wrap.
             let largest_multiple_remaining =
                 (u64::MAX / remaining).wrapping_mul(remaining);
-            let mut candidate = loop {
-            let largest_multiple_remaining = (u64::MAX / remaining) * remaining;
             let candidate = loop {
-                if current_seed < largest_multiple {
+                if current_seed < largest_multiple_remaining {
                     break current_seed;
                 }
                 current_seed = current_seed
