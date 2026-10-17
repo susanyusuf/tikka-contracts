@@ -775,7 +775,7 @@ if config.randomness_source == RandomnessSource::External {
         .publish(&env);
 
         // Check if quorum reached.
-        if count >= k {
+        let result = if count >= k {
             // Build the seed list from storage.
             let mut seeds = Vec::new(&env);
             for i in 0..submitted.len() {
@@ -791,8 +791,16 @@ if config.randomness_source == RandomnessSource::External {
             }
 
             let aggregate = randomness::aggregate_quorum_seeds(&env, request_id, &seeds);
-            helpers::do_finalize_with_seed(&env, raffle, aggregate, RandomnessType::Quorum, Some(seeds))?;
-        }
+            helpers::do_finalize_with_seed(
+                &env,
+                raffle,
+                aggregate,
+                RandomnessType::Quorum,
+                Some(seeds),
+            )
+        } else {
+            Ok(())
+        };
 
         #[cfg(any(test, feature = "testutils"))]
         assert_solvent_after_success(&env, &result);
