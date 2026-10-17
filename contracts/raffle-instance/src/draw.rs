@@ -18,11 +18,6 @@ use crate::{
     CommitRevealEntry, DataKey, Error, RaffleStatus, ORACLE_TIMEOUT_LEDGERS,
     RANDOMNESS_MIN_DELAY_LEDGERS,
 };
-use crate::randomness::{build_vrf_proof_message, derive_random_seed_from_proof};
-use crate::{
-    CommitRevealEntry, DataKey, Error, RaffleStatus, ORACLE_TIMEOUT_LEDGERS,
-    RANDOMNESS_MIN_DELAY_LEDGERS,
-};
 
 pub(crate) fn finalize_raffle(env: Env) -> Result<(), Error> {
     let drawing_lock: bool = env
