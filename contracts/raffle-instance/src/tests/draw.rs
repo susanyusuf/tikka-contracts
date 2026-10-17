@@ -1,6 +1,7 @@
 //! Finalization, randomness modes (external fallback, commit-reveal, quorum), drawing lock lifecycle.
 
 use super::*;
+use raffle_shared::constants::RANDOMNESS_MIN_DELAY_LEDGERS;
 use soroban_sdk::xdr::ToXdr;
 
 /// `sha256(seed_be || oracle_address_xdr || request_id_be)` — the commitment
@@ -86,7 +87,7 @@ fn test_oracle_fallback_with_ledger_delays() {
 
     // 6. Attempt fallback too early
     let result = client.try_trigger_randomness_fallback(&creator, &false);
-    assert_eq!(env.events().all().len(), 0);
+    assert_eq!(env.events().all().events().len(), 0);
     assert_eq!(result.err(), Some(Ok(Error::FallbackTooEarly)));
 
     // 7. Simulate ledger delays
@@ -573,7 +574,7 @@ fn provide_randomness_rejects_submission_one_ledger_early() {
 
     // One ledger before `request_ledger + RANDOMNESS_MIN_DELAY_LEDGERS`.
     env.ledger()
-        .set_sequence_number(request_ledger + crate::RANDOMNESS_MIN_DELAY_LEDGERS - 1);
+        .set_sequence_number(request_ledger + RANDOMNESS_MIN_DELAY_LEDGERS - 1);
     assert_eq!(
         client.try_provide_randomness(&seed, &public_key, &proof, &request_id),
         Err(Ok(Error::RandomnessTooEarly))
@@ -582,7 +583,7 @@ fn provide_randomness_rejects_submission_one_ledger_early() {
 
     // The next ledger satisfies the bound and the draw finalizes.
     env.ledger()
-        .set_sequence_number(request_ledger + crate::RANDOMNESS_MIN_DELAY_LEDGERS);
+        .set_sequence_number(request_ledger + RANDOMNESS_MIN_DELAY_LEDGERS);
     client.provide_randomness(&seed, &public_key, &proof, &request_id);
     assert_eq!(client.get_raffle().status, RaffleStatus::Finalized);
 }

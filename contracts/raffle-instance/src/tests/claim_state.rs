@@ -109,7 +109,7 @@ fn swept_prize_is_reported_separately_and_cannot_be_claimed() {
     assert!(!swept_entry.claimed);
     assert!(swept_entry.swept);
 
-    let stats = client.get_stats().unwrap();
+    let stats = client.get_stats();
     assert_eq!(stats.claimed_prizes, 0);
     assert_eq!(stats.swept_prizes, 2);
     assert_eq!(raffle.status, RaffleStatus::Finalized);

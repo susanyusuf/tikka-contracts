@@ -74,7 +74,7 @@ fn buy_tickets_rejects_quantity_above_per_tx_cap() {
         client.try_buy_tickets(&buyer, &6),
         Err(Ok(Error::ExceedsMaxTicketsPerTx))
     );
-    assert_eq!(env.events().all().len(), 0);
+    assert_eq!(env.events().all().events().len(), 0);
     assert_eq!(client.buy_tickets(&buyer, &5), 5);
 }
 
@@ -295,7 +295,7 @@ fn admin_can_pause_and_resume_ticket_sales() {
         client.try_buy_tickets(&buyer, &1),
         Err(Ok(Error::ContractPaused))
     );
-    assert_eq!(env.events().all().len(), 0);
+    assert_eq!(env.events().all().events().len(), 0);
 
     client.resume_ticket_sales(&admin);
     assert!(!client.is_ticket_sales_paused());

@@ -47,9 +47,9 @@ fn non_winner_cannot_claim() {
     env.ledger()
         .set_timestamp(2_000 + DEFAULT_CLAIM_LOCKUP_SECONDS + 1);
 
-    let start_events = env.events().all().len();
+    let start_events = env.events().all().events().len();
     let result = client.try_claim_prize(&attacker, &0u32);
-    assert_eq!(env.events().all().len(), start_events);
+    assert_eq!(env.events().all().events().len(), start_events);
     assert_eq!(result, Err(Ok(Error::NotWinner)));
 }
 
@@ -84,9 +84,9 @@ fn test_refund_guard_released_after_success() {
 
     client.init(&factory, &admin, &creator, &config);
 
-    let start_events = env.events().all().len();
+    let start_events = env.events().all().events().len();
     let result = client.try_emergency_withdraw(&creator);
-    assert_eq!(env.events().all().len(), start_events);
+    assert_eq!(env.events().all().events().len(), start_events);
     assert_eq!(result.err(), Some(Ok(Error::PrizeNotDeposited)));
 }
 
@@ -187,7 +187,7 @@ fn test_refund_ticket_credits_payer_not_owner() {
     let owner_before = token_client.balance(&recipient);
 
     client.cancel_raffle(&CancelReason::CreatorCancelled);
-    let refunded = client.refund_ticket(&payer, &0);
+    let refunded = client.refund_ticket(&0);
 
     assert_eq!(refunded, MIN_TICKET_PRICE);
     assert_eq!(token_client.balance(&payer), payer_before + MIN_TICKET_PRICE);
@@ -233,9 +233,9 @@ fn test_batch_refund_tickets_credits_payer_not_owner() {
 
     client.cancel_raffle(&CancelReason::CreatorCancelled);
     // The owner may drive the batch, but the refund still follows the payer.
-    let refunded = client.batch_refund_tickets(&recipient, &soroban_sdk::vec![&env, 0u32, 1u32]);
+    let refunded_count = client.batch_refund_tickets(&recipient, &soroban_sdk::vec![&env, 0u32, 1u32]);
 
-    assert_eq!(refunded, MIN_TICKET_PRICE * 2);
+    assert_eq!(refunded_count, 2u32);
     assert_eq!(
         token_client.balance(&payer),
         payer_before + MIN_TICKET_PRICE * 2
