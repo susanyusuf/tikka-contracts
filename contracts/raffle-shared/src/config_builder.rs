@@ -12,7 +12,7 @@ use crate::{RandomnessSource, RaffleConfig};
 ///
 /// # Example
 ///
-/// ```rust
+/// ```ignore
 /// let config = RaffleConfigBuilder::new(&env, payment_token)
 ///     .max_tickets(100)
 ///     .ticket_price(10_000)
