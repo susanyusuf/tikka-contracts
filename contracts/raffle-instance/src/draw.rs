@@ -561,8 +561,10 @@ pub(crate) fn provide_quorum_randomness(
     Ok(())
 }
 
-        let aggregate = randomness::aggregate_quorum_seeds(&env, request_id, &seeds);
-        crate::helpers::do_finalize_with_seed(&env, raffle, aggregate, RandomnessType::Quorum, Some(seeds))?;
+pub(crate) fn reveal_commit(env: Env, ticket_id: u32, preimage: BytesN<32>) -> Result<(), Error> {
+    let raffle = read_raffle(&env)?;
+    if raffle.randomness_source != RandomnessSource::CommitReveal {
+        return Err(Error::InvalidParameters);
     }
     if raffle.status != RaffleStatus::Active && raffle.status != RaffleStatus::Drawing {
         return Err(Error::InvalidStatus);
