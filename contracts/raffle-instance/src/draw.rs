@@ -548,7 +548,7 @@ pub(crate) fn provide_quorum_randomness(
     .publish(&env);
 
     if count >= k {
-        let aggregate = crate::randomness::aggregate_quorum_seeds(&env, &seeds);
+        let aggregate = crate::randomness::aggregate_quorum_seeds(&env, request_id, &seeds);
         do_finalize_with_seed(
             &env,
             raffle,

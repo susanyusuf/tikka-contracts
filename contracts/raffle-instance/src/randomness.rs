@@ -652,6 +652,36 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_quorum_seeds_is_request_scoped() {
+        let env = Env::default();
+        let contract = env
+            .register_stellar_asset_contract_v2(Address::generate(&env))
+            .address();
+
+        let addr_a = Address::generate(&env);
+        let addr_b = Address::generate(&env);
+
+        let aggregate_first = env.as_contract(&contract, || {
+            let mut v = Vec::new(&env);
+            v.push_back((addr_a.clone(), 10u64));
+            v.push_back((addr_b.clone(), 20u64));
+            aggregate_quorum_seeds(&env, 1u64, &v)
+        });
+
+        let aggregate_second = env.as_contract(&contract, || {
+            let mut v = Vec::new(&env);
+            v.push_back((addr_a.clone(), 10u64));
+            v.push_back((addr_b.clone(), 20u64));
+            aggregate_quorum_seeds(&env, 2u64, &v)
+        });
+
+        assert_ne!(
+            aggregate_first, aggregate_second,
+            "the same seed multiset under different request_ids must not reproduce the same aggregate"
+        );
+    }
+
+    #[test]
     fn aggregate_quorum_seeds_golden_vector() {
         let env = Env::default();
         let contract = env
