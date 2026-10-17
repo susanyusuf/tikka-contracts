@@ -118,6 +118,15 @@ mod tests {
         assert_eq!(apply_bp(12_345, 10_000).unwrap(), 12_345);
     }
 
+    #[test]
+    fn apply_bp_overflow_returns_error() {
+        // `i128::MAX × 10_000` overflows the intermediate product.
+        assert!(matches!(
+            apply_bp(i128::MAX, 10_000),
+            Err(ProtocolError::ArithmeticOverflow)
+        ));
+    }
+
     // -----------------------------------------------------------------------
     // split_bp — sum property
     // -----------------------------------------------------------------------

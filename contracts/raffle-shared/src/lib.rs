@@ -11,11 +11,6 @@ pub use math::{apply_bp, split_bp, BP_DENOMINATOR};
 
 pub use config_builder::{ConfigValidationError, RaffleConfigBuilder};
 
-/// Apply a basis-point rate using floor division, returning `None` on overflow.
-pub fn apply_bp(amount: i128, bp: u32) -> Option<i128> {
-    amount.checked_mul(bp as i128).map(|value| value / 10_000)
-}
-
 #[cfg(test)]
 mod nft_mint_test;
 use soroban_sdk::{contracttype, Address, BytesN, String, Vec};
@@ -626,6 +621,7 @@ mod test {
             prizes: Vec::new(env),
             randomness_source: RandomnessSource::Internal,
             oracle_address: None,
+            oracle_public_key: None,
             protocol_fee_bp: 0,
             treasury_address: None,
             swap_router: None,
