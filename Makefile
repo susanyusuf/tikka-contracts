@@ -1,4 +1,4 @@
-.PHONY: build check test test-doc lint fmt-check clippy orphan-check wasm-size \
+.PHONY: build check check-targets test test-doc lint fmt-check clippy orphan-check wasm-size \
         docs-errors docs-events shellcheck \
         ruff-lint ruff-fmt-check python-tests supply-chain \
         fuzz clean deploy-testnet deploy-mainnet verify reproducible \
@@ -74,6 +74,75 @@ clean:
 	cargo clean
 
 # ---------------------------------------------------------------------------
+# Check targets
+#
+# Every name in `.PHONY` — and every `make` target called from
+# .github/workflows/ci.yml — must have a real recipe here: `make` treats a
+# `.PHONY` name with no recipe as a no-op that always succeeds, so a missing
+# recipe silently turns `make ci` green (issue #1173).
+#
+# The commands are the ones the workflow used to shell out to directly, so CI
+# and a local `make ci` run the same thing (issue #1175).
+# ---------------------------------------------------------------------------
+
+# `lint` was always documented as "fmt-check and clippy together"; without a
+# recipe, `all: lint test build` silently skipped both linters.
+lint: fmt-check clippy
+
+# Fails when a `.PHONY` name above loses its recipe. Keep this first in `ci:`.
+check-targets:
+	python3 scripts/check_make_targets.py
+
+orphan-check:
+	python3 scripts/check_orphan_modules.py
+
+# 128 KB limit plus the per-binary baseline delta in `baselines/`. Set
+# WASM_SIZE_REPORT to also write the human-readable PR report (CI does).
+wasm-size:
+	python3 scripts/check_wasm_sizes.py
+
+# `--check` regenerates in memory and fails on any difference instead of
+# rewriting the docs, which is what CI needs.
+docs-errors:
+	python3 scripts/generate_error_docs.py --check
+
+docs-events:
+	python3 scripts/generate_event_docs.py --check
+
+shellcheck:
+	shellcheck scripts/*.sh
+
+ruff-lint:
+	ruff check scripts
+
+ruff-fmt-check:
+	ruff format --check scripts
+
+python-tests:
+	python3 -m pytest scripts/tests
+
+# ---------------------------------------------------------------------------
+# Oracle service (Node/TypeScript) — the oracle_check CI job
+# ---------------------------------------------------------------------------
+oracle-build:
+	cd oracle && npm run build
+
+oracle-test:
+	cd oracle && npm test
+
+oracle-test-ci:
+	cd oracle && npm run test:ci
+
+oracle-lint:
+	cd oracle && npm run lint
+
+oracle-fmt-check:
+	cd oracle && npm run format:check
+
+oracle-typecheck:
+	cd oracle && npm run typecheck
+
+# ---------------------------------------------------------------------------
 # Convenience aliases
 # ---------------------------------------------------------------------------
 
@@ -92,7 +161,7 @@ all: lint test build
 #   - Coverage ratchet              (needs cargo-llvm-cov; run separately)
 #   - Upload artifact steps
 # ---------------------------------------------------------------------------
-ci: check fmt-check orphan-check build wasm-size docs-errors docs-events \
+ci: check-targets check fmt-check orphan-check build wasm-size docs-errors docs-events \
     clippy test test-doc shellcheck \
     ruff-lint ruff-fmt-check python-tests supply-chain \
     oracle-fmt-check oracle-lint oracle-typecheck oracle-test-ci
