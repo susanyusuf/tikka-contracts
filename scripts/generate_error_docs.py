@@ -10,7 +10,8 @@ The output is deterministic: for a fixed repository state the generated file
 is byte-identical every run, so it can be diffed in CI.
 
 Usage:
-    python scripts/generate_error_docs.py
+    python scripts/generate_error_docs.py           # write docs/ERRORS.md
+    python scripts/generate_error_docs.py --check   # fail if out of sync
 """
 
 from __future__ import annotations
@@ -49,8 +50,7 @@ def parse_error_enum(file_path: Path, enum_name: str) -> list[tuple[int, str]]:
         print(f"Error: Could not find enum {enum_name} in {file_path}", file=sys.stderr)
         sys.exit(1)
     errors = [
-        (int(m.group(2)), m.group(1))
-        for m in re.finditer(r"(\w+)\s*=\s*(\d+)", match.group(1))
+        (int(m.group(2)), m.group(1)) for m in re.finditer(r"(\w+)\s*=\s*(\d+)", match.group(1))
     ]
     errors.sort(key=lambda x: x[0])
     return errors
@@ -114,6 +114,13 @@ INSTANCE_DESCRIPTIONS: dict[str, str] = {
     "OracleNotRegistered": "Caller is not a registered oracle for this raffle",
     "DuplicateOracleSubmission": "This oracle has already submitted its seed",
     "CommitAlreadySubmitted": "A commit has already been submitted for this draw",
+    "DrawingNotStarted": "Randomness callback arrived before the raffle entered the drawing phase",
+    "MissingCommit": "Reveal submitted for an oracle with no recorded commitment",
+    "CommitMismatch": "Revealed pre-image does not match the stored commitment",
+    "TooFewCommits": "Not enough commitments were recorded to reveal",
+    "RandomnessSourceTooWeakForPrize": "Randomness source is too weak for the configured prize",
+    "AdminTransferPending": "Admin transfer already pending",
+    "NoPendingTransfer": "No pending admin transfer",
 }
 
 INSTANCE_MESSAGES: dict[str, str] = {
@@ -174,6 +181,13 @@ INSTANCE_MESSAGES: dict[str, str] = {
     "OracleNotRegistered": "Caller is not a registered oracle for this raffle",
     "DuplicateOracleSubmission": "This oracle has already submitted its seed",
     "CommitAlreadySubmitted": "This oracle has already committed for this draw",
+    "DrawingNotStarted": "Drawing has not started yet",
+    "MissingCommit": "No commit was recorded for this oracle",
+    "CommitMismatch": "The revealed value does not match the commitment",
+    "TooFewCommits": "Not enough oracle commitments for this round",
+    "RandomnessSourceTooWeakForPrize": "Randomness source is too weak for this prize",
+    "AdminTransferPending": "Admin transfer already pending",
+    "NoPendingTransfer": "No pending admin transfer",
 }
 
 FACTORY_DESCRIPTIONS: dict[str, str] = {
@@ -237,7 +251,7 @@ def markdown_table(
     for code, name in errors:
         desc = descriptions.get(name, "TODO: Add description")
         msg = messages.get(name, "TODO: Add message")
-        lines.append(f"| {code} | `{name}` | {desc} | \"{msg}\" |")
+        lines.append(f'| {code} | `{name}` | {desc} | "{msg}" |')
     return "\n".join(lines)
 
 
@@ -257,6 +271,8 @@ def typescript_mapping(instance_errors: list[tuple[int, str]]) -> str:
 
 
 def main() -> None:
+    check_only = "--check" in sys.argv[1:]
+
     sections = []
     for src_rel, enum_name, title in ENUMS:
         src_file = REPO_ROOT / src_rel
@@ -275,7 +291,22 @@ def main() -> None:
     header = """\
 # Error Codes
 
-This document lists all error codes emitted by the Tikka raffle contracts.
+This document is **auto-generated**. **Do not edit by hand.** Regenerate it
+whenever error codes or descriptions change:
+
+```bash
+python scripts/generate_error_docs.py
+```
+
+Sources of truth:
+
+- Instance ABI codes: the `Error` enum in
+  [`contracts/raffle-instance/src/lib.rs`](contracts/raffle-instance/src/lib.rs).
+- Factory ABI codes: the `ContractError` enum in
+  [`contracts/raffle-factory/src/lib.rs`](contracts/raffle-factory/src/lib.rs).
+- Canonical catalog: `ProtocolError` in
+  [`contracts/raffle-shared/src/errors.rs`](contracts/raffle-shared/src/errors.rs);
+  `scripts/check_error_codes.py` enforces that both enums stay in sync with it.
 
 ---
 
@@ -290,6 +321,21 @@ This document lists all error codes emitted by the Tikka raffle contracts.
     )
 
     out = DOCS / "ERRORS.md"
+    if check_only:
+        current = out.read_text(encoding="utf-8") if out.exists() else None
+        if current != docs:
+            print(
+                f"Error: {out.relative_to(REPO_ROOT)} is out of sync with the error enums.",
+                file=sys.stderr,
+            )
+            print(
+                "Run: python scripts/generate_error_docs.py",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(f"{out.relative_to(REPO_ROOT)} is up to date.")
+        sys.exit(0)
+
     out.write_text(docs, encoding="utf-8", newline="\n")
     print(f"Wrote {out.relative_to(REPO_ROOT)}")
 

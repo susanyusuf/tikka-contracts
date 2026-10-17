@@ -19,7 +19,8 @@ The output is deterministic: for a fixed repository state the generated file
 is byte-identical every run, so it can be diffed in CI.
 
 Usage:
-    python scripts/generate_event_docs.py
+    python scripts/generate_event_docs.py           # write docs/EVENTS.md
+    python scripts/generate_event_docs.py --check   # fail if out of sync
 """
 
 from __future__ import annotations
@@ -248,6 +249,8 @@ To avoid the drift that silently breaks indexers:
 
 
 def main() -> None:
+    check_only = "--check" in sys.argv[1:]
+
     sections = []
     for src_rel, title in CRATES:
         src_dir = REPO_ROOT / src_rel
@@ -302,7 +305,9 @@ def main() -> None:
             if emitters:
                 block = "**Emitted by:** `" + "`, `".join(emitters) + "`"
             else:
-                block = "**Emitted by:** *(no live call sites — defined but not currently published)*"
+                block = (
+                    "**Emitted by:** *(no live call sites — defined but not currently published)*"
+                )
             blocks.append(block)
             blocks.append("")
             blocks.append("---")
@@ -313,6 +318,21 @@ def main() -> None:
     docs = build_header() + "\n".join(sections) + "\n"
 
     out = DOCS / "EVENTS.md"
+    if check_only:
+        current = out.read_text(encoding="utf-8") if out.exists() else None
+        if current != docs:
+            print(
+                f"Error: {out.relative_to(REPO_ROOT)} is out of sync with the event structs.",
+                file=sys.stderr,
+            )
+            print(
+                "Run: python scripts/generate_event_docs.py",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print(f"{out.relative_to(REPO_ROOT)} is up to date.")
+        sys.exit(0)
+
     out.write_text(docs, encoding="utf-8", newline="\n")
     print(f"Wrote {out.relative_to(REPO_ROOT)}")
 
