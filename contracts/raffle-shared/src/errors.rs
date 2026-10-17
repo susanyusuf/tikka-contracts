@@ -93,6 +93,18 @@ pub enum ProtocolError {
     PrizeSwept = 72,
 
     // ------------------------------------------------------------------ --
+    // Instance-only errors (100–199). New instance-specific codes go here;
+    // codes in this range are never shared with the factory.
+    // ------------------------------------------------------------------ --
+    DrawingNotStarted = 100,
+    MissingCommit = 101,
+    CommitMismatch = 102,
+    TooFewCommits = 103,
+    RandomnessSourceTooWeakForPrize = 104,
+    AdminTransferPending = 105,
+    NoPendingTransfer = 106,
+
+    // ------------------------------------------------------------------ --
     // Factory errors — mapped to 200+ to avoid conflicts with instance codes.
     // These document the factory's own codes; the original factory codes
     // are noted in comments.  New factory-specific errors must also use 200+.
@@ -118,11 +130,4 @@ pub enum ProtocolError {
     FactoryCreationPaused = 218,      // factory original: 24
     FactoryCallerNotRegisteredRaffle = 219, // factory original: 25
     FactoryRandomnessSourceTooWeakForPrize = 220, // factory original: 26
-
-    // ------------------------------------------------------------------ --
-    // Reserved for future instance-specific errors (100–199).
-    // Factory-specific errors start at 200 and are defined above.
-    // Do not assign codes here without updating CONTRIBUTING.md.
-    // ------------------------------------------------------------------ --
-    ReservedInstance100 = 100,
 }
