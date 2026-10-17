@@ -515,6 +515,79 @@ fn drawing_lock_cleared_after_oracle_seed_delivered() {
 }
 
 #[test]
+fn provide_randomness_rejects_submission_one_ledger_early() {
+    use ed25519_dalek::{Signer, SigningKey};
+
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let factory = env.register(MockFactory, ());
+    let admin = Address::generate(&env);
+    let creator = Address::generate(&env);
+    let oracle = Address::generate(&env);
+    let token_admin = Address::generate(&env);
+    let payment_token = env
+        .register_stellar_asset_contract_v2(token_admin.clone())
+        .address();
+    let token_client = StellarAssetClient::new(&env, &payment_token);
+    token_client.mint(&creator, &1_000_000);
+
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let signing_key = SigningKey::from_bytes(&[6u8; 32]);
+    let public_key = BytesN::from_array(&env, &signing_key.verifying_key().to_bytes());
+
+    let config = RaffleConfigBuilder::new(&env, payment_token)
+        .description(String::from_str(&env, "Min-delay enforcement"))
+        .max_tickets(1)
+        .max_tickets_per_tx(1)
+        .prize_amount(MIN_TICKET_PRICE * 2)
+        .randomness_source(RandomnessSource::External)
+        .oracle_address(Some(oracle))
+        .oracle_public_key(Some(public_key.clone()))
+        .metadata_hash(BytesN::from_array(&env, &[50; 32]))
+        .build()
+        .expect("valid min-delay config");
+
+    client.init(&factory, &admin, &creator, &config);
+    client.deposit_prize();
+    client.buy_tickets(&creator, &1);
+
+    // Sell-out moved the raffle into Drawing and recorded the request ledger.
+    let request_ledger = env.ledger().sequence();
+
+    let request_id: u64 = env.as_contract(&contract_id, || {
+        env.storage()
+            .instance()
+            .get(&DataKey::RandomnessRequestId)
+            .unwrap()
+    });
+
+    let message = env.as_contract(&contract_id, || {
+        crate::randomness::build_vrf_proof_message(&env, request_id)
+    });
+    let message_bytes: std::vec::Vec<u8> = message.iter().collect();
+    let proof = BytesN::from_array(&env, &signing_key.sign(&message_bytes).to_bytes());
+    let seed = crate::randomness::derive_random_seed_from_proof(&env, &proof);
+
+    // One ledger before `request_ledger + RANDOMNESS_MIN_DELAY_LEDGERS`.
+    env.ledger()
+        .set_sequence_number(request_ledger + crate::RANDOMNESS_MIN_DELAY_LEDGERS - 1);
+    assert_eq!(
+        client.try_provide_randomness(&seed, &public_key, &proof, &request_id),
+        Err(Ok(Error::RandomnessTooEarly))
+    );
+    assert_eq!(client.get_raffle().status, RaffleStatus::Drawing);
+
+    // The next ledger satisfies the bound and the draw finalizes.
+    env.ledger()
+        .set_sequence_number(request_ledger + crate::RANDOMNESS_MIN_DELAY_LEDGERS);
+    client.provide_randomness(&seed, &public_key, &proof, &request_id);
+    assert_eq!(client.get_raffle().status, RaffleStatus::Finalized);
+}
+
+#[test]
 fn drawing_lock_cleared_after_fallback_finalize() {
     let env = Env::default();
     env.mock_all_auths();

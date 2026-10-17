@@ -69,8 +69,6 @@ use crate::events::{
     WinnerDrawn,
 };
 
-const RANDOMNESS_MIN_DELAY_LEDGERS: u32 = 10;
-
 #[contract]
 pub struct RaffleInstance;
 
