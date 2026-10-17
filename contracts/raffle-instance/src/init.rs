@@ -248,7 +248,11 @@ pub(crate) fn deposit_prize(env: Env) -> Result<(), Error> {
 
     let token_client = token::Client::new(&env, &raffle.prize_token);
     let _ = token_client
-        .try_transfer(&raffle.creator, env.current_contract_address(), &raffle.prize_amount)
+        .try_transfer(
+            &raffle.creator,
+            &env.current_contract_address(),
+            &raffle.prize_amount,
+        )
         .map_err(|_| Error::TokenTransferFailed)?;
 
     raffle.prize_deposited = true;
