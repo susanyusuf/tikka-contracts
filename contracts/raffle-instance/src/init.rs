@@ -35,7 +35,7 @@ use raffle_shared::RaffleConfig;
 
 use crate::events::{PrizeDeposited, RaffleCreated};
 use crate::{
-    helpers::{read_raffle, require_not_paused, transition_status},
+    helpers::{read_raffle, require_not_paused, transition_status, validate_token_address},
     write_raffle, DataKey, Error, Raffle, RaffleStatus,
 };
 
@@ -113,6 +113,19 @@ pub(crate) fn init(
         ConfigValidationError::TooManyPrizes => Error::TooManyPrizes,
         ConfigValidationError::InvalidTokenAddress => Error::InvalidTokenAddress,
     })?;
+
+    // Validate that the payment_token is a valid token contract.
+    validate_token_address(&env, &config.payment_token)?;
+
+    // Honour the prize-token override if provided; otherwise default to payment_token.
+    if let Some(ref pt) = config.prize_token {
+        validate_token_address(&env, pt)?;
+    }
+    let prize_token = config
+        .prize_token
+        .clone()
+        .unwrap_or_else(|| config.payment_token.clone());
+
     let claim_expiry = config
         .claim_expiry_seconds
         .unwrap_or(DEFAULT_CLAIM_EXPIRY_SECONDS);
@@ -245,4 +258,60 @@ pub(crate) fn deposit_prize(env: Env) -> Result<(), Error> {
     PrizeDeposited { creator: raffle.creator.clone(), amount: raffle.prize_amount, token: raffle.prize_token.clone(), timestamp: ts }.publish(&env);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::base_config;
+    use soroban_sdk::testutils::Address as _;
+
+    fn token(env: &Env) -> Address {
+        env.register_stellar_asset_contract_v2(Address::generate(env))
+            .address()
+    }
+
+    /// Runs `init` against a freshly registered instance so instance storage
+    /// and `env.current_contract_address()` behave as they do in production.
+    fn run_init(env: &Env, config: raffle_shared::RaffleConfig) -> Result<Raffle, Error> {
+        let instance = env.register(RaffleInstance, ());
+        env.as_contract(&instance, || {
+            init(
+                env.clone(),
+                Address::generate(env),
+                Address::generate(env),
+                Address::generate(env),
+                config,
+            )?;
+            read_raffle(env)
+        })
+    }
+
+    #[test]
+    fn init_defaults_prize_token_to_payment_token() {
+        let env = Env::default();
+        let payment_token = token(&env);
+        let config = base_config(&env, &payment_token);
+
+        let raffle = run_init(&env, config).expect("init should succeed");
+
+        assert_eq!(raffle.prize_token, payment_token);
+    }
+
+    #[test]
+    fn init_honours_and_validates_prize_token_override() {
+        let env = Env::default();
+        let payment_token = token(&env);
+        let prize_token = token(&env);
+
+        let mut config = base_config(&env, &payment_token);
+        config.prize_token = Some(prize_token.clone());
+        let raffle = run_init(&env, config).expect("init should succeed");
+        assert_eq!(raffle.prize_token, prize_token);
+
+        let mut config = base_config(&env, &payment_token);
+        config.prize_token = Some(Address::generate(&env));
+        let result = run_init(&env, config);
+        assert!(matches!(result, Err(Error::InvalidTokenAddress)));
+    }
 }
