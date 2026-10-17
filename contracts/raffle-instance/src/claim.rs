@@ -1,5 +1,4 @@
-use raffle_shared::apply_bp;
-use raffle_shared::constants::MAX_SWEEP_UNCLAIMED_PER_CALL;
+use raffle_shared::constants::{MAX_BATCH_REFUND_PER_CALL, MAX_SWEEP_UNCLAIMED_PER_CALL};
 use raffle_shared::math::split_bp;
 use soroban_sdk::{token, Address, Env};
 
@@ -42,12 +41,6 @@ pub(crate) fn claim_prize(env: Env, winner: Address, tier_index: u32) -> Result<
         return Err(Error::ZeroPrize);
     }
 
-    let protocol_fee = apply_bp(amount, raffle.protocol_fee_bp)
-        .ok_or(Error::ArithmeticOverflow)?;
-
-    let net_amount = amount
-        .checked_sub(protocol_fee)
-        .ok_or(Error::ArithmeticOverflow)?;
     let (protocol_fee, net_amount) =
         split_bp(amount, raffle.protocol_fee_bp).map_err(|_| Error::ArithmeticOverflow)?;
     let tc = token::Client::new(&env, &raffle.prize_token);
@@ -298,12 +291,14 @@ pub(crate) fn batch_refund_tickets(
 
         if !env.storage().persistent().has(&DataKey::TicketRefunded(ticket_id)) {
             env.storage().persistent().set(&DataKey::TicketRefunded(ticket_id), &true);
-            
+
             token_client.try_transfer(&env.current_contract_address(), &ticket.payer, &ticket.price_paid).map_err(|_| Error::TokenTransferFailed)?.map_err(|_| Error::TokenTransferFailed)?;
-            
+
             TicketRefunded { buyer: ticket.payer, ticket_number: ticket.ticket_number, amount: ticket.price_paid, timestamp: env.ledger().timestamp() }.publish(&env);
-            
-            total_refunded = total_refunded.checked_add(raffle.ticket_price).ok_or(Error::ArithmeticOverflow)?;
+
+            refunded_count = refunded_count
+                .checked_add(1)
+                .ok_or(Error::ArithmeticOverflow)?;
         }
     }
 

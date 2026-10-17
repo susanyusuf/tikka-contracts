@@ -92,7 +92,7 @@ use crate::{
 ///
 /// Emits [`events::RaffleCreated`].
 ///
-/// See also: [`docs/EVENTS.md`](../../../../docs/EVENTS.md) — `RaffleCreated`.
+/// See also: [`docs/EVENTS.md`](../../../docs/EVENTS.md) — `RaffleCreated`.
 #[allow(dead_code)]
 pub(crate) fn init(
     env: Env,
@@ -268,6 +268,7 @@ pub(crate) fn deposit_prize(env: Env) -> Result<(), Error> {
 mod tests {
     use super::*;
     use crate::tests::base_config;
+    use crate::RaffleInstance;
     use soroban_sdk::testutils::Address as _;
 
     fn token(env: &Env) -> Address {

@@ -419,7 +419,11 @@ pub(crate) fn withdraw_fees(env: Env, recipient: Address, amount: i128) -> Resul
         return Err(Error::InsufficientAccumulatedFees);
     }
     let tc = token::Client::new(&env, &raffle.payment_token);
+    // `try_transfer` carries two error layers: the host invocation error and
+    // the token contract's own soft error. Both must be handled so a declined
+    // transfer cannot silently proceed to the fee bookkeeping below.
     tc.try_transfer(&env.current_contract_address(), &recipient, &amount)
+        .map_err(|_| Error::TokenTransferFailed)?
         .map_err(|_| Error::TokenTransferFailed)?;
     let remaining = acc.checked_sub(amount).ok_or(Error::ArithmeticOverflow)?;
     env.storage()

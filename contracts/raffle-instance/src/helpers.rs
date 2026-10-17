@@ -457,9 +457,7 @@ pub(crate) fn calculate_tier_prize(raffle: &Raffle, tier_index: u32) -> Result<i
         for i in 0..last_tier_index {
             let bp = raffle.prizes.get(i).ok_or(Error::InvalidIndex)?;
             let amt = raffle_shared::apply_bp(raffle.prize_amount, bp)
-                .ok_or(Error::ArithmeticOverflow)?
-                .checked_add(allocated)
-                .ok_or(Error::ArithmeticOverflow)?;
+                .map_err(|_| Error::ArithmeticOverflow)?;
             allocated = allocated
                 .checked_add(amt)
                 .ok_or(Error::ArithmeticOverflow)?;
@@ -471,7 +469,7 @@ pub(crate) fn calculate_tier_prize(raffle: &Raffle, tier_index: u32) -> Result<i
     } else {
         let bp = raffle.prizes.get(tier_index).ok_or(Error::InvalidIndex)?;
         raffle_shared::apply_bp(raffle.prize_amount, bp)
-            .ok_or(Error::ArithmeticOverflow)
+            .map_err(|_| Error::ArithmeticOverflow)
     }
 }
 
@@ -518,7 +516,7 @@ pub(crate) fn calculate_tier_prize(raffle: &Raffle, tier_index: u32) -> Result<i
 /// - [`events::WinnerDrawn`] — emitted once per winner.
 /// - [`events::RaffleFinalized`] — emitted after all winners are resolved.
 ///
-/// See also: [`docs/EVENTS.md`](../../../../docs/EVENTS.md) — `WinnerDrawn`,
+/// See also: [`docs/EVENTS.md`](../../../docs/EVENTS.md) — `WinnerDrawn`,
 /// `RaffleFinalized`.
 pub(crate) fn do_finalize_with_seed(
     env: &Env,
@@ -582,6 +580,7 @@ pub(crate) fn do_finalize_with_seed(
         winner_records.push_back(crate::Winner {
             address: winner,
             claimed: false,
+            swept: false,
         });
     }
     raffle.winners = winner_records;
@@ -710,7 +709,7 @@ pub(crate) fn calculate_buy_quote(raffle: &Raffle, quantity: u32) -> Result<BuyQ
         if sold < eb_cap {
             let remaining = (eb_cap - sold).min(quantity as u64) as i128;
             let disc_per = raffle_shared::apply_bp(unit, raffle.early_bird_discount_bp)
-                .ok_or(Error::ArithmeticOverflow)?;
+                .map_err(|_| Error::ArithmeticOverflow)?;
             discount = disc_per
                 .checked_mul(remaining)
                 .ok_or(Error::ArithmeticOverflow)?;
@@ -723,7 +722,7 @@ pub(crate) fn calculate_buy_quote(raffle: &Raffle, quantity: u32) -> Result<BuyQ
 
     // Floor fee — match current buy_tickets style (fee = total * bp / 10000)
     let fee = raffle_shared::apply_bp(after_discount, raffle.protocol_fee_bp)
-        .ok_or(Error::ArithmeticOverflow)?;
+        .map_err(|_| Error::ArithmeticOverflow)?;
 
     let effective_ticket_price = after_discount
         .checked_div(quantity as i128)

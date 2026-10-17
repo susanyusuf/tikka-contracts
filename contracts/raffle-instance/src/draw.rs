@@ -1,7 +1,7 @@
 use soroban_sdk::{xdr::ToXdr, Address, Bytes, BytesN, Env, Vec};
 
 use raffle_shared::{
-    constants::MIN_COMMITS_FOR_DRAW,
+    constants::{MIN_COMMITS_FOR_DRAW, RANDOMNESS_MIN_DELAY_LEDGERS},
     CancelReason, FailureReason, QuorumConfig, RandomnessSource, RandomnessType,
 };
 
@@ -14,10 +14,7 @@ use crate::helpers::{
     require_awaiting_randomness, revert_status, transition_status, transition_to_drawing,
 };
 use crate::randomness::{build_vrf_proof_message, derive_random_seed_from_proof};
-use crate::{
-    CommitRevealEntry, DataKey, Error, RaffleStatus, ORACLE_TIMEOUT_LEDGERS,
-    RANDOMNESS_MIN_DELAY_LEDGERS,
-};
+use crate::{CommitRevealEntry, DataKey, Error, RaffleStatus, ORACLE_TIMEOUT_LEDGERS};
 
 pub(crate) fn finalize_raffle(env: Env) -> Result<(), Error> {
     let drawing_lock: bool = env
