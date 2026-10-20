@@ -146,7 +146,7 @@ mod tests {
             l.sequence_number += 1_400_000;
         });
 
-        let refreshed = env.as_contract(&contract, || extend_ticket_ttls(&env, 1, 10));
+        let refreshed = env.as_contract(&contract, || extend_ticket_ttls(&env, 1, 10).refreshed);
         assert_eq!(refreshed, 3);
 
         let after =
@@ -154,6 +154,42 @@ mod tests {
         assert!(
             after >= before,
             "Ticket TTL should survive ledger advance after paginated bump"
+        );
+    }
+
+    /// #1216: a gap in the ticket range must not stop the sweep. Ticket 1 is
+    /// missing, so the old `break`-on-gap behaviour would leave tickets 2-5
+    /// unbumped. Assert every ticket after the gap is still refreshed.
+    #[test]
+    fn test_extend_ticket_ttls_continues_past_gap() {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.cost_estimate().budget().reset_unlimited();
+        let contract = contract(&env);
+
+        // Store tickets 2..=5, deliberately leaving ticket 1 absent.
+        env.as_contract(&contract, || {
+            for i in 2..=5u32 {
+                env.storage().persistent().set(&DataKey::Ticket(i), &true);
+            }
+        });
+        let before =
+            env.as_contract(&contract, || env.storage().persistent().get_ttl(&DataKey::Ticket(5)));
+
+        // Advance past the persistent-entry threshold so a bump is observable.
+        env.ledger().with_mut(|l| {
+            l.sequence_number += 1_400_000;
+        });
+
+        let sweep = env.as_contract(&contract, || extend_ticket_ttls(&env, 1, 10));
+        assert_eq!(sweep.refreshed, 4, "tickets after the gap must be refreshed");
+        assert_eq!(sweep.scanned, 5, "the sweep resumes past the missing ID");
+
+        let after =
+            env.as_contract(&contract, || env.storage().persistent().get_ttl(&DataKey::Ticket(5)));
+        assert!(
+            after > before,
+            "Ticket 5 after the gap must be bumped despite the missing ticket 1"
         );
     }
 }

@@ -163,6 +163,12 @@ pub enum DataKey {
     GlobalEmergencyPause,
     RaffleCreator(u32),
     RaffleCategory(u32),
+    /// Raffle address → creator address. Written on creation so
+    /// `record_volume` can attribute ticket-sale volume/fees to the creator's
+    /// [`PartnerStats`] without the instance passing anything but its own
+    /// address (#1232). Keyed by address (unlike [`Self::RaffleCreator`], which
+    /// is keyed by stable ID).
+    RaffleCreatorByAddress(Address),
     CreatorProfile(Address),
     WhitelistedPartner(Address),
     PartnerStats(Address),
@@ -359,6 +365,64 @@ fn require_valid_role_address(env: &Env, address: &Address) -> Result<(), Contra
     Ok(())
 }
 
+/// Reject `ConfigKey` values the factory cannot actually store.
+///
+/// Only [`ConfigKey::Treasury`] maps to a live storage slot today. `Oracle`
+/// and `SwapRouter` are declared in the shared API but have no factory-level
+/// slot, so accepting them would let an admin queue (and later "execute") a
+/// timelocked configuration change that silently does nothing (#1238). We
+/// reject them at proposal time so a no-op can never enter the queue, and
+/// again at execution time in case an unsupported op is already pending.
+fn require_supported_config_key(key: &ConfigKey) -> Result<(), ContractError> {
+    match key {
+        ConfigKey::Treasury => Ok(()),
+        ConfigKey::Oracle | ConfigKey::SwapRouter => Err(ContractError::InvalidParameters),
+    }
+}
+
+/// Record that `creator` produced a raffle, updating the partner dashboard
+/// aggregates (#1232, #488).
+///
+/// This is the single writer for [`PartnerStats`]'s creation-time fields and is
+/// shared by every creation path (`create_raffle` and `trigger_next_round`, via
+/// [`create_raffle_internal`]) so both are counted identically. Only
+/// whitelisted partners are tracked; a non-partner is a no-op.
+///
+/// Field semantics:
+/// - `total_raffles` — number of raffles created by this partner (all paths).
+/// - `first_raffle_at` / `latest_raffle_at` — timestamp of the earliest and
+///   most recent creation.
+/// - `total_volume` / `total_fees_generated` — running sums attributed by
+///   [`RaffleFactory::record_volume`] from ticket purchases; untouched here.
+fn record_partner_raffle_created(env: &Env, creator: &Address, now: u64) {
+    if !env
+        .storage()
+        .persistent()
+        .has(&DataKey::WhitelistedPartner(creator.clone()))
+    {
+        return;
+    }
+    let mut stats: PartnerStats = env
+        .storage()
+        .persistent()
+        .get(&DataKey::PartnerStats(creator.clone()))
+        .unwrap_or(PartnerStats {
+            total_raffles: 0,
+            total_volume: 0,
+            total_fees_generated: 0,
+            first_raffle_at: now,
+            latest_raffle_at: 0,
+        });
+    if stats.total_raffles == 0 {
+        stats.first_raffle_at = now;
+    }
+    stats.total_raffles = stats.total_raffles.saturating_add(1);
+    stats.latest_raffle_at = now;
+    env.storage()
+        .persistent()
+        .set(&DataKey::PartnerStats(creator.clone()), &stats);
+}
+
 pub(crate) fn create_raffle_internal(
     env: &Env,
     creator: Address,
@@ -420,6 +484,18 @@ pub(crate) fn create_raffle_internal(
     env.storage()
         .persistent()
         .set(&DataKey::RaffleById(stable_id), &raffle_address);
+    // Author the raffle -> creator mapping so `record_volume` can attribute
+    // volume/fees to the creator's PartnerStats (#1232). Keyed by the stable
+    // ID, matching `clean_old_raffle`'s read/remove.
+    env.storage()
+        .persistent()
+        .set(&DataKey::RaffleCreator(stable_id), &creator.clone());
+    // Address-keyed mirror so `record_volume` can resolve creator by raffle
+    // address (#1232).
+    env.storage().persistent().set(
+        &DataKey::RaffleCreatorByAddress(raffle_address.clone()),
+        &creator.clone(),
+    );
     // Reverse index so the factory can authorise bookkeeping calls from
     // instances it deployed (#795).
     env.storage()
@@ -441,7 +517,11 @@ pub(crate) fn create_raffle_internal(
     creator_raffles.push_back(raffle_address.clone());
     env.storage()
         .persistent()
-        .set(&DataKey::CreatorRaffles(creator), &creator_raffles);
+        .set(&DataKey::CreatorRaffles(creator.clone()), &creator_raffles);
+
+    // Count this creation toward the partner dashboard (#1232). Shared with
+    // the recurring path because both funnel through here.
+    record_partner_raffle_created(env, &creator, env.ledger().timestamp());
 
     if let Some(ref category) = category {
         let mut cat_raffles: Vec<Address> = env
@@ -592,6 +672,7 @@ impl RaffleFactory {
     ) -> Result<u32, ContractError> {
         let admin = require_admin(&env)?;
         require_valid_role_address(&env, &address)?;
+        require_supported_config_key(&key)?;
 
         let op_id = env
             .storage()
@@ -709,19 +790,18 @@ impl RaffleFactory {
         match pending.op.clone() {
             AdminOp::SetConfig(key, address) => {
                 require_valid_role_address(&env, &address)?;
+                require_supported_config_key(&key)?;
                 match key {
                     ConfigKey::Treasury => {
                         env.storage()
                             .persistent()
                             .set(&DataKey::Treasury, &address);
                     }
-                    ConfigKey::Oracle => {
-                        // The factory doesn't store a global Oracle address right now,
-                        // but if we add it to DataKey in the future we would set it here.
-                        // Currently, this is a placeholder per the user's request.
-                    }
-                    ConfigKey::SwapRouter => {
-                        // Same here, placeholder.
+                    // Unsupported keys are rejected by
+                    // `require_supported_config_key` above; this arm is
+                    // unreachable but kept exhaustive.
+                    ConfigKey::Oracle | ConfigKey::SwapRouter => {
+                        return Err(ContractError::InvalidParameters);
                     }
                 }
             }
@@ -988,7 +1068,19 @@ impl RaffleFactory {
     ///
     /// - [`ContractError::ArithmeticOverflow`] — adding `amount` to the
     ///   current total would exceed `i128::MAX`.
-    pub fn record_volume(env: Env, asset: Address, amount: i128) -> Result<(), ContractError> {
+    ///
+    /// # Partner attribution (#1232)
+    ///
+    /// When `raffle` maps to a whitelisted partner (via
+    /// [`DataKey::RaffleCreatorByAddress`]), the amount is also added to that
+    /// partner's [`PartnerStats::total_volume`] and `total_fees_generated`.
+    pub fn record_volume(
+        env: Env,
+        raffle: Address,
+        asset: Address,
+        amount: i128,
+        fee: i128,
+    ) -> Result<(), ContractError> {
         require_factory_raffle(&env)?;
         let total_volume: i128 = env
             .storage()
@@ -1001,6 +1093,41 @@ impl RaffleFactory {
         env.storage()
             .persistent()
             .set(&DataKey::TotalVolumePerAsset(asset), &total_volume);
+
+        if let Some(creator) = env
+            .storage()
+            .persistent()
+            .get::<_, Address>(&DataKey::RaffleCreatorByAddress(raffle))
+        {
+            if env
+                .storage()
+                .persistent()
+                .has(&DataKey::WhitelistedPartner(creator.clone()))
+            {
+                let mut stats: PartnerStats = env
+                    .storage()
+                    .persistent()
+                    .get(&DataKey::PartnerStats(creator.clone()))
+                    .unwrap_or(PartnerStats {
+                        total_raffles: 0,
+                        total_volume: 0,
+                        total_fees_generated: 0,
+                        first_raffle_at: 0,
+                        latest_raffle_at: 0,
+                    });
+                stats.total_volume = stats
+                    .total_volume
+                    .checked_add(amount)
+                    .ok_or(ContractError::ArithmeticOverflow)?;
+                stats.total_fees_generated = stats
+                    .total_fees_generated
+                    .checked_add(fee)
+                    .ok_or(ContractError::ArithmeticOverflow)?;
+                env.storage()
+                    .persistent()
+                    .set(&DataKey::PartnerStats(creator), &stats);
+            }
+        }
         Ok(())
     }
 

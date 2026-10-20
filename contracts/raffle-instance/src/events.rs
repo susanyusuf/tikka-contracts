@@ -117,13 +117,15 @@ pub struct TicketPurchased {
 
 /// Emitted when tickets are bought for another address (a gift).
 ///
-/// Note: currently `#[allow(dead_code)]` — gifted purchases publish
-/// [`TicketPurchased`] instead.
-#[allow(dead_code)]
+/// Published alongside [`TicketPurchased`] by `buy_tickets_for`, so
+/// consumers can distinguish a gift (where the payer and the owner of record
+/// differ) without a schema break. `TicketPurchased.buyer` is always the
+/// paying address; this event additionally names the `recipient` who owns the
+/// minted tickets.
 #[derive(Clone)]
 #[contractevent]
 pub struct TicketGifted {
-    /// Address that paid for the tickets.
+    /// Address that paid for the tickets (same as `TicketPurchased.buyer`).
     pub buyer: Address,
     /// Address that received the tickets (owner of record).
     pub recipient: Address,

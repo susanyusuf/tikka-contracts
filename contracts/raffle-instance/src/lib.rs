@@ -82,7 +82,14 @@ impl MockFactory {
         false
     }
 
-    pub fn record_volume(_env: Env, _payment_token: Address, _total_price: i128) {}
+    pub fn record_volume(
+        _env: Env,
+        _raffle: Address,
+        _payment_token: Address,
+        _total_price: i128,
+        _fee: i128,
+    ) {
+    }
 
     pub fn track_participant(_env: Env, _buyer: Address) {}
 
@@ -986,7 +993,7 @@ if config.randomness_source == RandomnessSource::External {
             raffle_shared::constants::INSTANCE_TTL_THRESHOLD_LEDGERS,
             raffle_shared::constants::INSTANCE_TTL_BUMP_LEDGERS,
         );
-        Ok(crate::helpers::extend_ticket_ttls(&env, start_ticket_id, limit))
+        Ok(crate::helpers::extend_ticket_ttls(&env, start_ticket_id, limit).refreshed)
     }
 }
 

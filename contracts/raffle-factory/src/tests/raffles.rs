@@ -98,6 +98,38 @@ fn partner_dashboard_tracks_stats_across_creations() {
     );
 }
 
+/// #1232: `create_raffle` must count toward `total_raffles` and
+/// `record_volume` must attribute ticket-sale volume and fees to the
+/// creator's partner stats.
+#[test]
+fn partner_stats_counts_volume_and_fees_after_purchase() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(7_000);
+
+    let (client, _admin, _treasury) = setup_factory(&env);
+    let partner = Address::generate(&env);
+    let token = make_token(&env);
+
+    client.set_whitelist_status(&partner, &true);
+
+    let raffle_address = client.create_raffle(&partner, &rate_limit_config(&env, &token, "vol1"));
+
+    let after_create = client.get_partner_stats(&partner).unwrap();
+    assert_eq!(after_create.total_raffles, 1);
+    assert_eq!(after_create.total_volume, 0);
+    assert_eq!(after_create.total_fees_generated, 0);
+
+    // The instance reports each purchase to the factory; simulate two.
+    client.record_volume(&raffle_address, &token, &10_000, &250);
+    client.record_volume(&raffle_address, &token, &5_000, &125);
+
+    let stats = client.get_partner_stats(&partner).unwrap();
+    assert_eq!(stats.total_raffles, 1);
+    assert_eq!(stats.total_volume, 15_000);
+    assert_eq!(stats.total_fees_generated, 375);
+}
+
 #[test]
 fn set_creation_delay_affects_rate_limiter() {
     let env = Env::default();

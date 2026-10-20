@@ -185,7 +185,7 @@ impl MockFactory {
 		false
 	}
 
-	pub fn record_volume(_env: Env, _token: Address, _amount: i128) {}
+	pub fn record_volume(_env: Env, _raffle: Address, _token: Address, _amount: i128, _fee: i128) {}
 
 	pub fn track_participant(_env: Env, _participant: Address) {}
 

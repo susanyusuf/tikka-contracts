@@ -148,32 +148,55 @@ pub(crate) fn bump_touched_tickets(
     );
 }
 
-/// Paginated operator helper: refresh `limit` ticket entries starting at
+/// Outcome of a paginated TTL sweep over a ticket-ID range.
+///
+/// `scanned` is the number of IDs the sweep walked (capped by `limit`) and
+/// `refreshed` the number of those that had a live ticket entry and were
+/// bumped. A caller can distinguish a sparse range (`refreshed < scanned`,
+/// i.e. some IDs are missing) from a fully populated one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct TtlSweep {
+    /// Ticket entries whose TTL was actually extended.
+    pub refreshed: u32,
+    /// Ticket IDs examined, including ones with no stored entry.
+    pub scanned: u32,
+}
+
+/// Paginated operator helper: refresh up to `limit` ticket entries starting at
 /// 1-indexed `start_ticket_id`.
 ///
 /// Exposed to operators through the `extend_ttl` entrypoint so anyone can
 /// keep a long-running raffle's ticket records alive without an O(n) call.
-/// Returns the number of entries refreshed.
-pub(crate) fn extend_ticket_ttls(env: &Env, start_ticket_id: u32, limit: u32) -> u32 {
+///
+/// A missing entry no longer stops the sweep: IDs are only *assumed* to be
+/// contiguous, and gaps are reachable (a partially completed paginated
+/// `wipe_storage`, or any future burn/transfer-out feature). Skipping past a
+/// gap keeps later tickets in the window from silently lapsing their TTL.
+pub(crate) fn extend_ticket_ttls(env: &Env, start_ticket_id: u32, limit: u32) -> TtlSweep {
     let mut refreshed = 0u32;
+    let mut scanned = 0u32;
     for offset in 0..limit {
-        if let Some(ticket_id) = start_ticket_id.checked_add(offset) {
-            if !env
-                .storage()
-                .persistent()
-                .has(&DataKey::Ticket(ticket_id))
-            {
-                break;
-            }
-            env.storage().persistent().extend_ttl(
-                &DataKey::Ticket(ticket_id),
-                raffle_shared::constants::PERSISTENT_TTL_THRESHOLD_LEDGERS,
-                raffle_shared::constants::PERSISTENT_TTL_BUMP_LEDGERS,
-            );
-            refreshed = refreshed.saturating_add(1);
+        let Some(ticket_id) = start_ticket_id.checked_add(offset) else {
+            break;
+        };
+        scanned = scanned.saturating_add(1);
+        if !env
+            .storage()
+            .persistent()
+            .has(&DataKey::Ticket(ticket_id))
+        {
+            // A gap is not the end of the range -- keep scanning so later
+            // tickets in the window are still bumped (issue #1216).
+            continue;
         }
+        env.storage().persistent().extend_ttl(
+            &DataKey::Ticket(ticket_id),
+            raffle_shared::constants::PERSISTENT_TTL_THRESHOLD_LEDGERS,
+            raffle_shared::constants::PERSISTENT_TTL_BUMP_LEDGERS,
+        );
+        refreshed = refreshed.saturating_add(1);
     }
-    refreshed
+    TtlSweep { refreshed, scanned }
 }
 
 /// Checked lifecycle transition. All status writes must go through this helper

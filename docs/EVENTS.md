@@ -857,13 +857,13 @@ Topic: `tikka:swap_deadline_updated`
 
 ## TicketGifted
 
-Emitted when tickets are bought for another address (a gift).  Note: currently `#[allow(dead_code)]` — gifted purchases publish [`TicketPurchased`] instead.
+Emitted when tickets are bought for another address (a gift).  Published alongside [`TicketPurchased`] by `buy_tickets_for`, so consumers can distinguish a gift (where the payer and the owner of record differ) without a schema break. `TicketPurchased.buyer` is always the paying address; this event additionally names the `recipient` who owns the minted tickets.
 
 Topic: `tikka:ticket_gifted`
 
 | Field | Type | Flags | Description |
 |-------|------|-------|-------------|
-| `buyer` | `Address` |  | Address that paid for the tickets. |
+| `buyer` | `Address` |  | Address that paid for the tickets (same as `TicketPurchased.buyer`). |
 | `recipient` | `Address` |  | Address that received the tickets (owner of record). |
 | `ticket_ids` | `Vec<u32>` |  | 1-based ticket IDs minted; length equals `quantity`. |
 | `quantity` | `u32` |  | Number of tickets gifted in this transaction. |
@@ -873,7 +873,7 @@ Topic: `tikka:ticket_gifted`
 | `protocol_fee` | `i128` |  | Protocol fee (basis points of `total_paid`) held for later withdrawal. |
 | `timestamp` | `u64` |  | Ledger timestamp of the gift. |
 
-**Emitted by:** *(no live call sites — defined but not currently published)*
+**Emitted by:** `buy_tickets_for`
 
 ---
 

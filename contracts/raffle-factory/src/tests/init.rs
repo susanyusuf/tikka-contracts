@@ -24,11 +24,12 @@ fn test_record_volume_overflow() {
     env.mock_all_auths();
     let (client, _admin, _treasury) = setup_factory(&env);
     let asset = Address::generate(&env);
+    let raffle = Address::generate(&env);
 
-    client.record_volume(&asset, &(i128::MAX - 1));
+    client.record_volume(&raffle, &asset, &(i128::MAX - 1), &0);
     assert_eq!(client.get_total_volume(&asset), i128::MAX - 1);
     let start_events = env.events().all().events().len();
-    assert!(client.try_record_volume(&asset, &2).is_err());
+    assert!(client.try_record_volume(&raffle, &asset, &2, &0).is_err());
     assert_eq!(env.events().all().events().len(), start_events);
     assert_eq!(client.get_total_volume(&asset), i128::MAX - 1);
 }
@@ -242,6 +243,27 @@ fn test_propose_config_change_rejects_self_treasury() {
     let start_events = env.events().all().events().len();
     assert_eq!(
         client.try_set_config(&ConfigKey::Treasury, &self_address),
+        Err(Ok(ContractError::InvalidParameters))
+    );
+    assert_eq!(env.events().all().events().len(), start_events);
+}
+
+/// #1238: keys the factory cannot store must be rejected at proposal time so a
+/// timelocked no-op can never be queued.
+#[test]
+fn test_propose_config_change_rejects_unsupported_keys() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin, _treasury) = setup_factory(&env);
+    let addr = Address::generate(&env);
+
+    let start_events = env.events().all().events().len();
+    assert_eq!(
+        client.try_set_config(&ConfigKey::Oracle, &addr),
+        Err(Ok(ContractError::InvalidParameters))
+    );
+    assert_eq!(
+        client.try_set_config(&ConfigKey::SwapRouter, &addr),
         Err(Ok(ContractError::InvalidParameters))
     );
     assert_eq!(env.events().all().events().len(), start_events);

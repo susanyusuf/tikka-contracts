@@ -41,7 +41,7 @@ use soroban_sdk::{
 
 use raffle_shared::{RandomnessSource, Ticket};
 
-use crate::events::{DrawTriggered, RandomnessRequested, TicketPurchased};
+use crate::events::{DrawTriggered, RandomnessRequested, TicketGifted, TicketPurchased};
 use crate::helpers::{
     bump_raffle_ttl, calculate_buy_quote, Guard, request_randomness, require_not_paused,
     transition_to_drawing,
@@ -329,7 +329,13 @@ pub(crate) fn buy_tickets(env: Env, buyer: Address, quantity: u32) -> Result<u32
         .instance()
         .get::<_, Address>(&DataKey::Factory)
     {
-        let args: Vec<Val> = (raffle.payment_token.clone(), total_price).into_val(&env);
+        let args: Vec<Val> = (
+            env.current_contract_address(),
+            raffle.payment_token.clone(),
+            total_price,
+            protocol_fee,
+        )
+            .into_val(&env);
         env.authorize_as_current_contract(Vec::from_array(
             &env,
             [InvokerContractAuthEntry::Contract(SubContractInvocation {
@@ -554,7 +560,7 @@ pub(crate) fn buy_tickets_for(env: Env, buyer: Address, recipient: Address, quan
         if raffle.randomness_source == RandomnessSource::External {
             let request_id = request_randomness(&env)?;
             DrawTriggered {
-                caller: recipient.clone(),
+                caller: buyer.clone(),
                 total_tickets_sold: raffle.tickets_sold,
                 timestamp,
             }
@@ -573,9 +579,24 @@ pub(crate) fn buy_tickets_for(env: Env, buyer: Address, recipient: Address, quan
 
     crate::write_raffle(&env, &raffle);
 
-    //  8. Emit event (after state is final)
+    //  8. Emit event (after state is final). `buyer` is the paying address on
+    //     both paths; a gift additionally publishes `TicketGifted` naming the
+    //     `recipient` who owns the minted tickets (issue #1249).
     TicketPurchased {
-        buyer: recipient.clone(),
+        buyer: buyer.clone(),
+        ticket_ids: ticket_ids.clone(),
+        quantity,
+        ticket_price: raffle.ticket_price,
+        effective_ticket_price: raffle.ticket_price,
+        total_paid: total_price,
+        protocol_fee,
+        timestamp,
+    }
+    .publish(&env);
+
+    TicketGifted {
+        buyer: buyer.clone(),
+        recipient: recipient.clone(),
         ticket_ids,
         quantity,
         ticket_price: raffle.ticket_price,
@@ -592,7 +613,13 @@ pub(crate) fn buy_tickets_for(env: Env, buyer: Address, recipient: Address, quan
         .instance()
         .get::<_, Address>(&DataKey::Factory)
     {
-        let args: Vec<Val> = (raffle.payment_token.clone(), total_price).into_val(&env);
+        let args: Vec<Val> = (
+            env.current_contract_address(),
+            raffle.payment_token.clone(),
+            total_price,
+            protocol_fee,
+        )
+            .into_val(&env);
         env.authorize_as_current_contract(Vec::from_array(
             &env,
             [InvokerContractAuthEntry::Contract(SubContractInvocation {
