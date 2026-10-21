@@ -540,6 +540,120 @@ fn setup_per_address_cap(
     }
 }
 
+/// Read a stored ticket straight from instance storage.
+fn read_ticket(env: &Env, contract_id: &Address, id: u32) -> Ticket {
+    env.as_contract(contract_id, || {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Ticket(id))
+            .expect("ticket stored")
+    })
+}
+
+/// #1242: `allow_multiple = false` is the legacy spelling of a one-ticket
+/// cap, and must report `MultipleTicketsNotAllowed` instead of the generic
+/// per-address cap error.
+#[test]
+fn allow_multiple_false_reports_multiple_tickets_not_allowed() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let setup = setup_per_address_cap(&env, 0, false, 10);
+
+    // The first ticket is allowed.
+    assert_eq!(setup.client.buy_tickets(&setup.buyer, &1), 1);
+
+    // A second ticket for the same address is rejected with the
+    // `allow_multiple = false` error.
+    assert_eq!(
+        setup.client.try_buy_tickets(&setup.buyer, &1),
+        Err(Ok(Error::MultipleTicketsNotAllowed))
+    );
+}
+
+#[test]
+fn allow_multiple_false_rejects_multi_ticket_purchase() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let setup = setup_per_address_cap(&env, 0, false, 10);
+
+    assert_eq!(
+        setup.client.try_buy_tickets(&setup.buyer, &2),
+        Err(Ok(Error::MultipleTicketsNotAllowed))
+    );
+}
+
+#[test]
+fn gift_purchase_reports_multiple_tickets_not_allowed_for_recipient() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let setup = setup_per_address_cap(&env, 0, false, 10);
+
+    setup
+        .client
+        .buy_tickets_for(&setup.buyer, &setup.recipient, &1);
+
+    assert_eq!(
+        setup
+            .client
+            .try_buy_tickets_for(&setup.buyer, &setup.recipient, &1),
+        Err(Ok(Error::MultipleTicketsNotAllowed))
+    );
+}
+
+/// An explicit per-address cap keeps reporting the generic cap error.
+#[test]
+fn explicit_cap_still_reports_exceeds_max_tickets_per_address() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let setup = setup_per_address_cap(&env, 1, true, 10);
+
+    setup.client.buy_tickets(&setup.buyer, &1);
+    assert_eq!(
+        setup.client.try_buy_tickets(&setup.buyer, &1),
+        Err(Ok(Error::ExceedsMaxTicketsPerAddress))
+    );
+}
+
+/// #1243: tickets are created through the canonical constructor, so the
+/// human-facing ticket number always matches the monotonic ticket id.
+#[test]
+fn purchased_ticket_keeps_ticket_number_equal_to_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let setup = setup_per_address_cap(&env, 0, true, 10);
+
+    setup.client.buy_tickets(&setup.buyer, &3);
+
+    for id in 1u32..=3 {
+        let ticket = read_ticket(&env, &setup.client.address, id);
+        assert_eq!(ticket.id, id);
+        assert_eq!(ticket.ticket_number, id);
+        assert_eq!(ticket.owner, setup.buyer);
+        assert_eq!(ticket.payer, setup.buyer);
+    }
+}
+
+/// #1243: gift purchases go through the canonical constructor as well — the
+/// ticket number still matches the id, while payer and owner stay distinct.
+#[test]
+fn gift_purchase_keeps_ticket_number_equal_to_id_and_records_payer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let setup = setup_per_address_cap(&env, 0, true, 10);
+
+    setup
+        .client
+        .buy_tickets_for(&setup.buyer, &setup.recipient, &2);
+
+    for id in 1u32..=2 {
+        let ticket = read_ticket(&env, &setup.client.address, id);
+        assert_eq!(ticket.id, id);
+        assert_eq!(ticket.ticket_number, id);
+        assert_eq!(ticket.owner, setup.recipient);
+        assert_eq!(ticket.payer, setup.buyer);
+    }
+}
+
 #[test]
 fn buying_exactly_the_cap_succeeds() {
     let env = Env::default();

@@ -79,7 +79,9 @@ use soroban_sdk::{
 use raffle_shared::constants::{
     MAX_RECURRING_INTERVAL_SECONDS, MIN_RECURRING_INTERVAL_SECONDS,
 };
-use raffle_shared::{RaffleConfigBuilder, RecurringRaffleConfig};
+use raffle_shared::{
+    exceeds_internal_randomness_cap, RaffleConfigBuilder, RecurringRaffleConfig,
+};
 
 use crate::events;
 use crate::registry::PartnerStats;
@@ -192,6 +194,10 @@ impl RaffleFactory {
     /// - [`ContractError::RecurringInactive`] if the schedule was cancelled.
     /// - [`ContractError::IntervalNotElapsed`] if the current timestamp is before `next_due`.
     /// - [`ContractError::MaxRoundsReached`] if `max_rounds > 0` and `current_round >= max_rounds`.
+    /// - [`ContractError::InvalidParameters`] if the stored base configuration is no longer valid.
+    /// - [`ContractError::RandomnessSourceTooWeakForPrize`] if the round would use
+    ///   internal randomness for a prize above
+    ///   [`MAX_INTERNAL_RANDOMNESS_PRIZE_AMOUNT`](raffle_shared::constants::MAX_INTERNAL_RANDOMNESS_PRIZE_AMOUNT).
     pub fn trigger_next_round(
         env: Env,
         recurring_id: u32,
@@ -220,6 +226,15 @@ impl RaffleFactory {
         let config = RaffleConfigBuilder::from_config(&env, entry.config.base_config.clone())
             .build()
             .map_err(|_| ContractError::InvalidParameters)?;
+
+        // #1210: the recurring path must apply the same internal-randomness
+        // prize cap as `create_raffle`.  Without this check a schedule could
+        // keep deploying rounds whose randomness source is too weak for the
+        // configured prize.
+        if exceeds_internal_randomness_cap(&config.randomness_source, config.prize_amount) {
+            return Err(ContractError::RandomnessSourceTooWeakForPrize);
+        }
+
         let raffle_address = crate::create_raffle_internal(
             &env,
             entry.creator.clone(),

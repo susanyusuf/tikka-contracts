@@ -240,6 +240,59 @@ fn test_trigger_next_round_not_found() {
 }
 
 #[test]
+fn test_trigger_next_round_rejects_internal_randomness_above_prize_cap() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1_000_000);
+    let (client, _admin, _treasury) = setup_factory(&env);
+    let creator = Address::generate(&env);
+    let token = make_token(&env);
+
+    // Internal randomness may only be used for prizes up to the cap.
+    let mut base = valid_base_config(&env, &token);
+    base.prize_amount = MAX_INTERNAL_RANDOMNESS_PRIZE_AMOUNT + 1;
+    let recurring_id = client.create_recurring_raffle(&creator, &recurring_config(&env, base));
+
+    env.ledger().set_timestamp(1_000_000 + 86_400);
+
+    assert_eq!(
+        client.try_trigger_next_round(&recurring_id),
+        Err(Ok(ContractError::RandomnessSourceTooWeakForPrize))
+    );
+
+    // The round must not be deployed and the schedule must not advance.
+    let entry = client
+        .get_recurring_raffle(&recurring_id)
+        .expect("entry exists");
+    assert_eq!(entry.current_round, 0);
+    assert!(entry.last_raffle_address.is_none());
+    assert_eq!(client.get_recurring_instances(&recurring_id).len(), 0u32);
+}
+
+#[test]
+fn test_trigger_next_round_accepts_internal_randomness_at_prize_cap_boundary() {
+    let env = Env::default();
+    env.mock_all_auths();
+    env.ledger().set_timestamp(1_000_000);
+    let (client, _admin, _treasury) = setup_factory(&env);
+    let creator = Address::generate(&env);
+    let token = make_token(&env);
+
+    let mut base = valid_base_config(&env, &token);
+    base.prize_amount = MAX_INTERNAL_RANDOMNESS_PRIZE_AMOUNT;
+    let recurring_id = client.create_recurring_raffle(&creator, &recurring_config(&env, base));
+
+    env.ledger().set_timestamp(1_000_000 + 86_400);
+
+    let _addr = client.trigger_next_round(&recurring_id);
+
+    let entry = client
+        .get_recurring_raffle(&recurring_id)
+        .expect("entry exists");
+    assert_eq!(entry.current_round, 1);
+}
+
+#[test]
 fn test_cancel_recurring_raffle() {
     let env = Env::default();
     env.mock_all_auths();
