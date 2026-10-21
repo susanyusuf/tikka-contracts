@@ -314,7 +314,9 @@ impl RaffleConfig {
 /// `id` is the monotonic, storage-scoped identifier used for lookups and draw
 /// indexing. `ticket_number` is the human-facing number exposed in UX and
 /// refund events. In the current contract implementation, every ticket is
-/// created with `ticket_number == id`, and that relationship is pinned by tests.
+/// created with `ticket_number == id`; that relationship is enforced by the
+/// constructors [`Ticket::new`] and [`Ticket::new_with_payer`] and pinned by
+/// tests.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[contracttype]
 pub struct Ticket {
@@ -346,13 +348,31 @@ pub struct Ticket {
 impl Ticket {
     /// Create a ticket with the canonical invariant that the human-facing ticket
     /// number matches the monotonic storage id.
+    ///
+    /// The payer is the owner: the address that holds the ticket is the one
+    /// that paid for it.
     pub fn new(id: u32, owner: Address, purchase_time: u64, price_paid: i128) -> Self {
+        Self::new_with_payer(id, owner.clone(), owner, purchase_time, price_paid)
+    }
+
+    /// Create a ticket whose payer differs from the owner (gift purchase).
+    ///
+    /// Keeps the same `ticket_number == id` invariant as [`Ticket::new`] while
+    /// allowing the party that paid for the ticket to be distinct from the
+    /// party that owns it.  Refunds always follow the payer.
+    pub fn new_with_payer(
+        id: u32,
+        owner: Address,
+        payer: Address,
+        purchase_time: u64,
+        price_paid: i128,
+    ) -> Self {
         Self {
             id,
-            owner: owner.clone(),
+            owner,
             purchase_time,
             ticket_number: id,
-            payer: owner,
+            payer,
             price_paid,
         }
     }

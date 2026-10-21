@@ -339,25 +339,41 @@ pub(crate) fn effective_max_tickets_per_address(raffle: &Raffle) -> Option<u32> 
     }
 }
 
-#[allow(dead_code)]
+/// Enforce the effective per-address ticket cap for a purchase of `quantity`
+/// tickets by `address`.
+///
+/// The cap is the one returned by [`effective_max_tickets_per_address`], so the
+/// legacy `allow_multiple = false` spelling and the explicit
+/// `max_tickets_per_address` field are both honoured.
+///
+/// # Errors
+///
+/// - [`Error::MultipleTicketsNotAllowed`] when the effective cap is a single
+///   ticket that was requested through `allow_multiple = false` and the
+///   purchase would exceed it.
+/// - [`Error::ExceedsMaxTicketsPerAddress`] when any other cap is exceeded.
+/// - [`Error::ArithmeticOverflow`] when the running ticket count would overflow.
 pub(crate) fn enforce_max_tickets_per_address(
     env: &Env,
     raffle: &Raffle,
     address: &Address,
     quantity: u32,
 ) -> Result<(), Error> {
-    if let Some(cap) = effective_max_tickets_per_address(raffle) {
-        let current: u32 = env
-            .storage()
-            .persistent()
-            .get(&DataKey::TicketCount(address.clone()))
-            .unwrap_or(0);
-        let Some(total) = current.checked_add(quantity) else {
-            return Err(Error::ExceedsMaxTicketsPerAddress);
-        };
-        if total > cap {
-            return Err(Error::ExceedsMaxTicketsPerAddress);
-        }
+    let Some(cap) = effective_max_tickets_per_address(raffle) else {
+        return Ok(());
+    };
+    let current: u32 = env
+        .storage()
+        .persistent()
+        .get(&DataKey::TicketCount(address.clone()))
+        .unwrap_or(0);
+    let total = current.checked_add(quantity).ok_or(Error::ArithmeticOverflow)?;
+    if total > cap {
+        return Err(if cap == 1 && !raffle.allow_multiple {
+            Error::MultipleTicketsNotAllowed
+        } else {
+            Error::ExceedsMaxTicketsPerAddress
+        });
     }
     Ok(())
 }
@@ -475,14 +491,10 @@ if config.randomness_source == RandomnessSource::External {
             }
         }
 
-        if config.randomness_source != RandomnessSource::External
-            && config.randomness_source
-                != RandomnessSource::Quorum(QuorumConfig {
-                    k: 1,
-                    oracles: Vec::new(&env),
-                })
-            && config.oracle_address.is_some()
-        {
+        // `oracle_address` may only be paired with the External randomness
+        // source; every other source either embeds its oracles (Quorum) or
+        // derives randomness locally (Internal).
+        if config.randomness_source != RandomnessSource::External && config.oracle_address.is_some() {
             return Err(Error::InvalidParameters);
         }
 

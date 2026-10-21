@@ -396,3 +396,39 @@ fn init_rejects_quorum_oracle_equal_to_contract() {
     );
 }
 
+/// #1244: `oracle_address` may only be paired with the `External` randomness
+/// source — `Internal` and `Quorum` must reject it.
+#[test]
+fn init_rejects_oracle_address_for_non_external_randomness() {
+    let (env, _, factory, admin, creator, payment_token) = init_bounds_env();
+    let contract_id = env.register(Contract, ());
+    let client = ContractClient::new(&env, &contract_id);
+
+    let oracle = Address::generate(&env);
+
+    let mut internal = base_config(&env, &payment_token);
+    internal.randomness_source = RandomnessSource::Internal;
+    internal.oracle_address = Some(oracle.clone());
+    assert_eq!(
+        client.try_init(&factory, &admin, &creator, &internal),
+        Err(Ok(Error::InvalidParameters))
+    );
+
+    let mut oracles = Vec::new(&env);
+    oracles.push_back(oracle.clone());
+    let mut quorum = base_config(&env, &payment_token);
+    quorum.randomness_source = RandomnessSource::Quorum(QuorumConfig { k: 1, oracles });
+    quorum.oracle_address = Some(oracle.clone());
+    assert_eq!(
+        client.try_init(&factory, &admin, &creator, &quorum),
+        Err(Ok(Error::InvalidParameters))
+    );
+
+    // The only valid pairing: `External` randomness with an oracle address.
+    let mut external = base_config(&env, &payment_token);
+    external.randomness_source = RandomnessSource::External;
+    external.oracle_address = Some(oracle);
+    client.init(&factory, &admin, &creator, &external);
+    assert_eq!(client.get_raffle().randomness_source, RandomnessSource::External);
+}
+

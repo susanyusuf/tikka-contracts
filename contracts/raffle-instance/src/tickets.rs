@@ -178,20 +178,10 @@ pub(crate) fn buy_tickets(env: Env, buyer: Address, quantity: u32) -> Result<u32
     {
         return Err(Error::TicketsSoldOut);
     }
-    if raffle.max_tickets_per_address == 0
-        && !raffle.allow_multiple
-        && (current_count > 0 || quantity > 1)
-    {
-        return Err(Error::MultipleTicketsNotAllowed);
-    }
-    if raffle.max_tickets_per_address > 0
-        && current_count
-            .checked_add(quantity)
-            .ok_or(Error::ArithmeticOverflow)?
-            > raffle.max_tickets_per_address
-    {
-        return Err(Error::ExceedsMaxTicketsPerAddress);
-    }
+    // #1242: the effective per-address cap covers both the explicit
+    // `max_tickets_per_address` field and the legacy `allow_multiple = false`
+    // spelling, and reports `MultipleTicketsNotAllowed` for the latter.
+    crate::enforce_max_tickets_per_address(&env, &raffle, &buyer, quantity)?;
 
     let timestamp = env.ledger().timestamp();
     let quote = calculate_buy_quote(&raffle, quantity)?;
@@ -261,14 +251,7 @@ pub(crate) fn buy_tickets(env: Env, buyer: Address, quantity: u32) -> Result<u32
             .checked_add(i)
             .and_then(|v: u32| v.checked_add(1))
             .ok_or(Error::ArithmeticOverflow)?;
-        let ticket = Ticket {
-            id: ticket_id,
-            owner: buyer.clone(),
-            payer: buyer.clone(),
-            purchase_time: timestamp,
-            ticket_number: ticket_id,
-            price_paid: effective_price,
-        };
+        let ticket = Ticket::new(ticket_id, buyer.clone(), timestamp, effective_price);
         env.storage()
             .persistent()
             .set(&DataKey::Ticket(ticket_id), &ticket);
@@ -441,20 +424,9 @@ pub(crate) fn buy_tickets_for(env: Env, buyer: Address, recipient: Address, quan
     {
         return Err(Error::TicketsSoldOut);
     }
-    if raffle.max_tickets_per_address == 0
-        && !raffle.allow_multiple
-        && (current_count > 0 || quantity > 1)
-    {
-        return Err(Error::MultipleTicketsNotAllowed);
-    }
-    if raffle.max_tickets_per_address > 0
-        && current_count
-            .checked_add(quantity)
-            .ok_or(Error::ArithmeticOverflow)?
-            > raffle.max_tickets_per_address
-    {
-        return Err(Error::ExceedsMaxTicketsPerAddress);
-    }
+    // #1242: the per-address cap is tracked against the ticket owner
+    // (recipient), not the payer.
+    crate::enforce_max_tickets_per_address(&env, &raffle, &recipient, quantity)?;
 
     let timestamp = env.ledger().timestamp();
     let quote = calculate_buy_quote(&raffle, quantity)?;
@@ -524,14 +496,13 @@ pub(crate) fn buy_tickets_for(env: Env, buyer: Address, recipient: Address, quan
             .checked_add(i)
             .and_then(|v: u32| v.checked_add(1))
             .ok_or(Error::ArithmeticOverflow)?;
-        let ticket = Ticket {
-            id: ticket_id,
-            owner: recipient.clone(),
-            purchase_time: timestamp,
-            ticket_number: ticket_id,
-            payer: buyer.clone(),
-            price_paid: effective_price,
-        };
+        let ticket = Ticket::new_with_payer(
+            ticket_id,
+            recipient.clone(),
+            buyer.clone(),
+            timestamp,
+            effective_price,
+        );
         env.storage()
             .persistent()
             .set(&DataKey::Ticket(ticket_id), &ticket);
